@@ -1,8 +1,8 @@
 'use strict';
 
 let Protractor = require('../../../lib/helper/Protractor');
-// let site_url = 'http://davertmik.github.io/angular-demo-app';
-let site_url = 'http://127.0.0.1:5000';
+let site_url = 'http://davertmik.github.io/angular-demo-app';
+// let site_url = 'http://127.0.0.1:5000';
 let assert = require('assert');
 let I, browser;
 let path = require('path');
@@ -13,6 +13,10 @@ var chaiAsPromised = require('chai-as-promised');
 chai.use(chaiAsPromised);
 var expect = chai.expect;
 let AssertionFailedError = require('../../../lib/assert/error');
+let formContents = require('../../../lib/utils').test.submittedData(path.join(__dirname, '../../data/app/db'));
+let fileExists = require('../../../lib/utils').fileExists;
+let expectError = require('../../../lib/utils').test.expectErrors;
+
 require('co-mocha')(require('mocha'));
 
 function assertFormContains(key, value) {
@@ -21,9 +25,6 @@ function assertFormContains(key, value) {
   });
 }
 
-function expectError() {
-  throw new Error('should not be thrown');
-}
 
 describe('Protractor', function() {
   this.timeout(20000);
@@ -59,7 +60,7 @@ describe('Protractor', function() {
       yield I.seeInCurrentUrl('/info');
       return I.dontSeeInCurrentUrl('/result');
     });
-    
+  
     it('should check for equality', function*() {
       yield I.amOnPage('/#/info');
       yield I.seeCurrentUrlEquals('/#/info');
@@ -84,10 +85,10 @@ describe('Protractor', function() {
   
   describe('see element : #seeElement, #dontSeeElement', () => {    
     it('should check visible elements on page', function*() {
-      yield I.amOnPage('/#/info');
+      yield I.amOnPage('/');
       yield I.seeElement('.btn.btn-primary');
       yield I.seeElement({css: '.btn.btn-primary'});
-      return I.dontSee({css: 'head'});
+      return I.dontSeeElement({css: '.btn.btn-secondary'});
     });
   });
   
@@ -203,7 +204,7 @@ describe('Protractor', function() {
       return assertFormContains('name', 'Jon Doe');      
     });
     
-    it.only('should fill textarea by label', function*() {
+    it('should fill textarea by label', function*() {
       yield I.amOnPage('/');
       yield I.fillField('Description', 'Just the best event');
       yield I.click('Submit');
@@ -317,10 +318,124 @@ describe('Protractor', function() {
       return expect(val).to.equal('ssh');      
     });
     
-    it.only('should grab attribute from element', function*() {
+    it('should grab attribute from element', function*() {
       yield I.amOnPage('/#/info');
       let val = yield I.grabAttribute('a.btn', 'ng-href');
       return expect(val).to.equal('#/');            
     });
   });  
+  
+  describe('page title : #seeTitle, #dontSeeTitle, #grabTitle', () => {
+    it('should check page title', function*() {
+      yield I.amOnPage('/');
+      return I.seeInTitle('Event App');
+    });
+    
+    it('should grab page title', function*() {
+      yield I.amOnPage('/');      
+      return expect(I.grabTitle()).to.eventually.equal('Event App');
+    });    
+  });
+  
+  describe('#attachFile', () => {
+    beforeEach(() => {
+      I.amOutsideAngularApp(); // switch off angular mode
+      return I.amOnPage('http://localhost:8000/form/file');      
+    });
+    
+    it('should upload file located by CSS', function*() {
+      yield I.attachFile('#avatar', 'app/avatar.jpg');
+      yield I.click('Submit');
+      return formContents()['files'].should.have.key('avatar');      
+    });
+    
+    it('should upload file located by label', function*() {
+      yield I.attachFile('Avatar', 'app/avatar.jpg');
+      yield I.click('Submit');
+      return formContents()['files'].should.have.key('avatar');      
+    });
+  });
+  
+  describe('#saveScreenshot', () => {
+    beforeEach(() => {
+      global.output_dir = path.join(global.codecept_dir, 'output');
+    });
+
+    it('should create a screenshot file in output dir', function*() {
+      yield I.amOnPage('/');
+      yield I.saveScreenshot('protractor_user.png');
+      return assert.ok(fileExists(path.join(output_dir, 'protractor_user.png')), null, 'file does not exists');
+    });
+
+    it('should create a screenshot on fail', function*() {
+      let test = { name: 'protractor should do smth' };
+      yield I.amOnPage('/')
+      yield I._failed(test);
+      return assert.ok(fileExists(path.join(output_dir, 'protractor_should_do_smth.failed.png')), null, 'file does not exists');
+    });
+  });
+  
+  describe('cookies : #setCookie, #clearCookies, #seeCookie', () => {
+    it('should do all cookie stuff', function*() {
+      yield I.amOnPage('/')
+      yield I.setCookie({name: 'auth', value: '123456'});
+      yield I.seeCookie('auth');
+      yield I.dontSeeCookie('auuth');
+      yield I.grabCookie('auth').then((cookie) => assert.equal(cookie.value, '123456'));
+      yield I.clearCookie('auth');
+      yield I.dontSeeCookie('auth');
+    });
+  });  
+  
+  describe('#seeInSource', () => {
+    it('should check for text to be in HTML source', function*() {
+      yield I.amOnPage('/')
+      yield I.seeInSource('<meta charset="utf-8"');
+      return I.dontSeeInSource('<article');
+    });
+  });  
+  
+  describe('window size : #resizeWindow', () => {
+    it('should change the active window size', function*() {
+      yield I.amOnPage('/')
+      yield I.resizeWindow(640, 480);
+      let size = yield I.browser.manage().window().getSize();
+      assert.equal(size.width, 640);
+      assert.equal(size.height, 480);
+    });
+  });  
+  
+  describe('#waitForText', () => {
+    beforeEach(() => {
+      return I.amOnPage('/#/info');   
+    });
+    
+    it('should wait for text', function*() {
+      yield I.dontSee('Boom!');
+      yield I.waitForText('Boom!', 2);
+      return I.see('Boom!');
+    });
+
+    it('should wait for text in context', function*() {
+      yield I.dontSee('Boom!');
+      yield I.waitForText('Boom!', 2, '#hello');
+      return I.see('Boom!');
+    });
+
+    it('should return error if not present', function*() {
+      return I.waitForText('Nothing here', 0, '#hello')
+        .then(expectError)
+        .thenCatch((e) => {
+          e.message.should.include('Wait timed out');
+        });
+    });
+
+    it('should return error if waiting is too small', function*() {
+      return I.waitForText('Boom!', 0.5)
+        .then(expectError)
+        .thenCatch((e) => {
+          e.message.should.include('Wait timed out');
+        });
+    });
+  });
 });
